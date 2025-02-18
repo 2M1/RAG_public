@@ -64,22 +64,20 @@ def generate_response(query, collection_name, chat_history):
         context = "\n".join(flat_documents)
 
         input_text = input_text = f"""
-You are a helpful and knowledgeable AI assistant specialized in answering queries based on the given context and prior conversation. 
+You are a helpful and knowledgeable AI assistant specialized in answering the USER QUERY based on the given CONTEXT and prior CHAT HISTORY.
 
 ### CONTEXT:
 Below is relevant information retrieved from a knowledge base that may help answer the user’s query:
 {context}
 
 ### CHAT HISTORY:
-This is the ongoing conversation between you and the user. Use it to maintain context and provide coherent responses. The Questions and Answers at the bottom of the array are the latest:
+This is the ongoing conversation between you and the user. Use it to maintain context and provide coherent responses:
 {chat_history}
 
-### User QUERY:
+### USER QUERY:
 {query}
 
-
-### Answer:
-
+### Your Answer:
 """
 
         print("input text")
