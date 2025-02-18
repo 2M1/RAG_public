@@ -42,13 +42,13 @@ def generate_response(query, collection_name, chat_history):
     
     print("collection")
     print(collection_name)
-    if (collection_name == "Openshift/AI on POWER"):
-        collection_name = "Openshift"
-    elif (collection_name == "Ansible"):
-        collection_name = "Ansible"
-    else:
-        collection_name = "POWER10"
-
+    # if (collection_name == "Openshift/AI on POWER"):
+    #     collection_name = "Openshift"
+    # elif (collection_name == "Ansible"):
+    #     collection_name = "Ansible"
+    # else:
+    #     collection_name = "POWER10"
+    # TODO: Add display names for collections?
 
 
     # Use context if needed
@@ -157,6 +157,8 @@ def main():
     }
     """
 
+    collections = chroma_client.list_collections()
+
     with gr.Blocks(theme=IBMTheme()) as demo:
         gr.Markdown("# Chatbot about IBM RedBooks running on IBM POWER10")
 
@@ -188,7 +190,7 @@ def main():
 
             file_selector = gr.Dropdown(
                 label="Which POWER Topic?",
-                choices=["POWER10 Generation", "Openshift/AI on POWER", "Ansible"]
+                choices=collections
             )
 
             # Submit button

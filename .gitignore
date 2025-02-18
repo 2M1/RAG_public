@@ -5,8 +5,16 @@
 /db_files_ocp/
 /__pycache__/
 
+# Environment files
+*.env
+!*example.env
+
+# Configuration files with local paths
+.vscode/settings.json
+
 # Ignore the folder myenv (which is likely your virtual environment)
 myenv/
+.python-version
 
 # Ignore specific files (exact filenames)
 Meta-Llama-3-8B.Q8_0.gguf
@@ -16,3 +24,7 @@ Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf
 mistral-7b-v0.1.Q4_K_M.gguf
 llama-3.2-3b-instruct-q8_0.gguf
 DeepSeek-R1-Distill-Qwen-14B-Q8_0.gguf
+
+# PDF and md files default directory path
+collection_files/
+transpiled_files/

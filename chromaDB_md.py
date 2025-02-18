@@ -1,15 +1,27 @@
 import sys
-from enum import auto
-from enum import Enum
+import os
+import re
+
+from enum import auto, Enum
 from pathlib import Path
 from typing import Optional
+from pprint import pprint
+import hashlib
+import json
+
 import chromadb
 from chromadb.utils import embedding_functions
 from chromadb import Collection
-from transformers import AutoTokenizer, AutoModel
-import os
-import re
+from chromadb.api import ClientAPI
+
 from langchain.text_splitter import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
+
+# Exported functions:
+__all__ = [
+    "ensure_collection",
+    "insert_document",
+    "load_files_from_md_directory_tree",
+]
 
 sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-mpnet-base-v2")
 
@@ -26,6 +38,7 @@ recursive_splitter = RecursiveCharacterTextSplitter(chunk_size=500)
 class CollectionStatus(Enum):
     COLLECTION_CREATED = auto()
     COLLECTION_EXISTS = auto()
+    COLLECTION_CREATION_FAILED = auto()
 
 
 def ensure_collection(client: chromadb.ClientAPI, collection_name: str) -> tuple[str, Optional[Collection]]:
@@ -63,6 +76,13 @@ def clean_text(raw_text: str) -> str:
 #    return chunks
 
 
+def document_path_get_id_prefix(doc_path: Path) -> str:
+    """returns the id prefix as used to prefix all chunks in chromaDB from the document path
+
+    :param doc_path: The path to the document.
+    :returns: the id string.
+    """
+    return doc_path.stem.replace(" ", "-").replace("_", "-")
 
 
 def insert_document(document_path: Path, collection: Collection) -> None:
@@ -78,7 +98,7 @@ def insert_document(document_path: Path, collection: Collection) -> None:
 
     text = splitter.split_text(markdown_content)    
     
-    document_name = document_path.stem.replace(" ", "-").replace("_", "-")
+    document_name = document_path_get_id_prefix(document_path)
 
     # Get chunks of text from the markdown content
     #chunks = get_chunks(markdown_content)
@@ -98,7 +118,8 @@ def insert_document(document_path: Path, collection: Collection) -> None:
     
     collection.add(
                 documents=document_chunks,
-                ids=document_ids
+                ids=document_ids,
+                metadatas=[{"filename": document_path.name}] * len(document_ids)
             )
     
 
@@ -129,6 +150,20 @@ def insert_document(document_path: Path, collection: Collection) -> None:
 '''
 
 
+def delete_document(document_path: Path, collection: Collection) -> None:
+    """Delete all chunks belonging to the document located at the document_path from the collection.
+
+    the file will not be opened or loaded from the disk in the process.
+
+    :param document_path: The path to the document to delete (does not have to be still existend on disk)
+    :param collection: The collection to delete the document from
+    """
+    collection.delete(where={'filename': document_path.name})
+    hashes = _get_hash_dict(collection)
+    hashes.pop(f"{collection.name}/{document_path.name}", None)
+    _save_hashes(collection, hashes)
+
+
 ## Folder_path = path to e config files
 def load_files_into_chroma(folder_path, client: chromadb.ClientAPI, collection_name):
     # Iterate over files in the folder
@@ -156,94 +191,243 @@ def load_files_into_chroma(folder_path, client: chromadb.ClientAPI, collection_n
             print(f"Added {filename} to Chroma database.")
 
 
+def _parse_collection_files_groups_from_dir(base_dir: Path) -> dict[str: list[str]]:
+    """
+    parses the folder structure for two levels deep from the disk starting at `base_dir` into a python directory
+   
+    Expected/Example file_structure:
+    ```
+    base_dir(default: transpiled_files)/
+    ├── Ansible (collection name 1)
+    │   └── Ansible.md (file in collection named Ansible)
+    ├── OpenShift (collection named OpenShift)
+    │   ├── SingleNode/ (ignored)
+    │   │    └── Test.md 
+    │   └── Openshift.md (file in collection named Openshift)
+    └── POWER10 (collection named POWER10)
+        ├── S1012.anything_else (also ignored)
+        └── E1050.md (file in collection named Power10)
+
+    ``` 
+    
+    Will result in the following dict:
+    
+    ```
+    {
+        "Ansible": ["Ansible.md"],
+        "OpenShift": ["Openshift.md"],
+        "POWER10": ["E1050.md"],
+    }
+    ```
+    
+
+    :returns: The directory structure of folder to md files under folder
+    """
+    result = {}
+    sub_dirs = map(
+            lambda entry: entry.name,
+            filter(
+                lambda entry: entry.is_dir(), 
+                os.scandir(base_dir)
+            )
+        )
+
+    for directory in sub_dirs:
+        files = list(
+            map(
+                lambda entry: entry.name,
+                filter(
+                    # filter for only markdown files:
+                    lambda entry: entry.is_file() and os.path.splitext(entry)[-1] == ".md",
+                    os.scandir(base_dir / directory) 
+                )
+            )
+        )
+        if files:
+            result[directory.replace(' ', '_')] = files
+    
+    return result
+
+
+def _calculate_file_hash(path: Path) -> str:
+    """hashes the given file using sh256.
+
+    :param path: The Path to the file to hash
+    :returns: the hexdigits as string of the sha256 hash
+    :raises IOError: If the given path does not point to a file.
+    """
+    
+    if not path.is_file():
+        raise IOError(f"cannot hash non-file object at {path}!")
+    
+    BUF_SIZE = 65536
+    
+    sha256 = hashlib.sha256()
+    
+    with open(path, 'rb', buffering=0) as f:
+       while True:
+        data = f.read(BUF_SIZE)
+        if not data:
+            break
+        sha256.update(data) 
+        
+    return sha256.hexdigest()
+
+
+def _get_hash_dict(collection: Collection) -> dict[str, str]:
+    """loads the hash directory from the metadata field of a collection if available
+
+    :params collection: the collection to get the hashes from
+    :returns: a dict of filename to hash (sha256), or an empty dict if no hashes were saved yet.
+    """
+    
+    if collection.metadata:
+        return json.loads(collection.metadata.get("hashes", "{}"))
+    return {}
+
+
+def _save_hashes(collection: Collection, hashes: dict[str, str]) -> None:
+    """save a mapping (dict) of filenames to hashes into the metadatafield 
+    `hashes` of the given collection.
+
+    All unrelated metadata will be keept.
+
+    :param collection: the collection to add the metadatafiled hashes to
+    :param hashes: dictonary of filename to filehash (sha256)
+    """
+    
+    meta_dict = collection.metadata or {}
+    # metadata values cannot be dicts/nested therefore encoded as json
+    meta_dict["hashes"] = json.dumps(hashes)
+    collection.modify(metadata=meta_dict)
+
+
+def load_files_from_md_directory_tree(chroma_client: ClientAPI, base_dir: Path, create_all_collection: bool = False) -> None:
+    """Loads all markdown files which follow the expected file-tree structure into their 
+    designated collection in the chroma db.
+    
+    Expected/Example file_structure:
+    ```
+    base_dir(default: transpiled_files)/
+    ├── Ansible (collection name 1)
+    │   └── Ansible.md (file in collection named Ansible)
+    ├── OpenShift (collection named OpenShift)
+    │   └── Openshift.md (file in collection named Openshift)
+    └── POWER10 (collection named POWER10)
+        ├── E1050.md (file in collection named Power10)
+        ├── E1080.md
+        ├── S1012.md
+        └── ScaleOut.md
+    ```
+
+    :param chroma_client: The client connection to ChromaDB
+    :param base_dir: The starting point (Path) of the directory structure
+    :param create_all_collection: Boolean toggle whether an all collection containing all files should also be created.
+    """
+
+    file_groups = _parse_collection_files_groups_from_dir(base_dir)
+    
+    all_collection_status, all_collection = ensure_collection(chroma_client, "All_Topics") if create_all_collection else (None, None)
+    if all_collection_status == CollectionStatus.COLLECTION_CREATION_FAILED:
+        raise RuntimeError("clould not create All Topics collection!")
+    
+    all_hashes = _get_hash_dict(all_collection)
+ 
+    statistics = {
+        "colls_created": 0,
+        "colls_modified": 0,
+        "colls_deleted": 0,
+        "files_modified": 0,
+        "files_inserted": 0,
+        "files_deleted": 0,
+        "files_not_found": 0,
+    }
+
+    for collection_name, files in file_groups.items():
+                
+        collection_status, collection = ensure_collection(chroma_client, collection_name)
+        if collection_status == CollectionStatus.COLLECTION_EXISTS:
+            print(f"collection '{ collection_name }' already exists. Looking for changes")
+            statistics["colls_modified"] += 1
+        else:
+            statistics["colls_created"] += 1
+        
+        print(f"Inserting Files into new collection '{ collection_name }'.")
+        
+        new_hashes = {} # change detection via sha256 hashes of the md files.
+        current_hashes = _get_hash_dict(collection)
+        
+        for file_name in files:
+            file_path: Path = base_dir / collection_name / file_name
+
+            if not file_path.exists():
+                print(f"File '{file_name}' was detected, but path '{file_path}' does not exists! Skipping File!", file = sys.stderr)
+                statistics["files_not_found"] += 1
+                continue
+            
+            file_local_id = f"{collection_name}/{file_name}"
+            new_hashes[file_local_id] = _calculate_file_hash(file_path)
+            
+            if current_hashes.get(file_local_id) == None:
+                print(f"Detected new file {file_name} in collection {collection_name}. Adding.")
+                insert_document(file_path, collection)
+                statistics["files_inserted"] += 1
+                
+                if create_all_collection:
+                    insert_document(file_path, all_collection) 
+                
+            elif current_hashes.get(file_local_id) != new_hashes[file_local_id]:
+                print(f"file { file_name } in { collection_name } was modified. Updating!")
+                delete_document(file_path, collection)
+                insert_document(file_path, collection)
+                statistics["files_modified"] += 1
+
+                if create_all_collection:
+                    delete_document(file_path, all_collection)
+                    insert_document(file_path, all_collection)
+
+        
+        deleted_files = set(current_hashes.keys()) - set(new_hashes.keys()) # files only currently in DB but not FS
+        for file_id in deleted_files:
+            print(f"File {file_id} is no longer present. Deleting from DB.")
+            delete_document(Path(file_id), collection)
+            statistics["files_deleted"] += 1
+            
+            if create_all_collection:
+                delete_document(Path(file_id), all_collection)
+                all_hashes.pop(file_id, None)
+         
+        # update metadata of collection (and for all):
+        _save_hashes(collection, new_hashes)
+        all_hashes.update(new_hashes)
+            
+        print(f"Completed updating collection '{ collection_name }'")
+    
+    _save_hashes(all_collection, all_hashes)
+   
+    # TODO: detect deleted collections and remove them. (Maybe at the top?)
+    # TODO: fancy output for statistics :)
+    pprint(statistics)
+
 
 def main() -> None:
-    base_directory = Path(os.getcwd())
-    db_directory = Path("./db")
-    files_directory = Path("./db_files_md")  # Folder containing markdown files
+    db_directory = Path(os.getenv("RAG_DB_DIR") or "./db")
+    files_directory = Path(os.getenv("RAG_MD_FILE_DIR") or "transpiled_files/")
 
     if not db_directory.exists():
         db_directory.mkdir()
 
     if not files_directory.exists():
-        print("DB files were not copied! Abort.")
+        print("DB files were not copied! Abort.", file=sys.stderr)
         sys.exit(1)
 
     chroma_client = chromadb.PersistentClient(path=str(db_directory))
 
-    ## Inserting e config files firt
-
-    #load_files_into_chroma("./db_config", chroma_client, "e_config_files")
-
-
-
-    # Define the groups of files (based on your example)
-    file_groups = [
-        "E1080.md",  # First collection should come from E1080_md
-        "E1050.md",  # Second collection should come from E1050_md
-        "S1012.md",  # Third collection should come from S1020_md
-        "ScaleOut.md",  # Fourth collection should come from E1010_md
-        "Openshift.md",
-        "Ansible.md" # Fifth collection should come from Openshift_md
-    ]
-    #file_groups = [
-    #    ["Openshift.md"],  # First collection should come from E1080_md
-    #]
-
-    # Iterate over the file groups and create a collection for each
-    for i, file_name in enumerate(file_groups):
-        print("Adding collection group", i + 1)
-        print(file_groups)
-        print(i)
-        print("filename")
-        print(file_name)
-
-
-        if (file_name == "E1080.md" or file_name == "E1050.md" or file_name == "S1012.md" or file_name == "ScaleOut.md"):
-            print("Adding")
-            print(file_name)
-            print("to")
-            print("POWER10")
-            collection_name = "POWER10"
-        # Remove the last three characters for the collection name
-        else:
-            collection_name = file_name[:-3]
-        print(collection_name)
-
-        # Ensure the collection exists or create it
-        collection_status, collection = ensure_collection(chroma_client, collection_name)
-
-        if collection_status == CollectionStatus.COLLECTION_EXISTS:
-            print(f"Collection '{collection_name}' already exists. Skipping file insertion.")
-        else:
-            print(f"Creating collection '{collection_name}' and inserting documents.")
-            
-            # Process the file
-            document_path = files_directory / file_name
-            if document_path.exists():
-                insert_document(document_path, collection)
-                print(f"Inserted {file_name} into {collection_name}")
-            else:
-                print(f"File {file_name} not found!")
-            
-            # Delay between operations
-
-    # Final collection with all the markdown files in the directory
-    #final_collection_name = "final_collection_all_files"
-    #collection_status, collection = ensure_collection(chroma_client, final_collection_name)
-
-    #if collection_status == CollectionStatus.COLLECTION_EXISTS:
-    #    print(f"Collection '{final_collection_name}' already exists. Skipping file insertion.")
-    #else:
-    #    print(f"Creating collection '{final_collection_name}' and inserting all documents.")
-    #    for document_path in files_directory.glob("*.md"):  # Insert all .md files
-    #        insert_document(document_path, collection)
-    #        print(f"Inserted {document_path.name} into {final_collection_name}")
-    #        time.sleep(5)
-
+    load_files_from_md_directory_tree(chroma_client, files_directory, True)
     print("Setup completed.")
 
     # Example query for testing
+    collection = chroma_client.get_collection(name="POWER10", embedding_function=sentence_transformer_ef)
     result = collection.query(
         query_texts=["What is IBM POWER"],
         n_results=5,
