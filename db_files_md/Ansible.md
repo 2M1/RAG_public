@@ -158,7 +158,7 @@ Here are the key considerations for choosing Ansible Automation Platform:
 - Scale and complexity: For large organizations with complex automation needs, Ansible Automation Platform might be the better choice due to its enterprise-grade features and support.
 
 By carefully evaluating these factors, you can select the Ansible offering that best aligns with your organization's goals, budget, and support requirements.
-
+You said that ansible is an open source automation platform. Are there also parts of Ansible which are not open source?
 Table 1-1 compares these offerings.
 
 Table 1-1   Comparing Ansible offerings
