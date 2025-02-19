@@ -32,7 +32,7 @@ headers_to_split_on = [
 ]
 
 splitter = MarkdownHeaderTextSplitter(headers_to_split_on, strip_headers=False)
-recursive_splitter = RecursiveCharacterTextSplitter(chunk_size=500)
+recursive_splitter = RecursiveCharacterTextSplitter(chunk_size=1500)
 
 
 class CollectionStatus(Enum):
@@ -108,12 +108,9 @@ def insert_document(document_path: Path, collection: Collection) -> None:
     #print("Whole text")
     #print(text)
     for chunk_index, chunk in enumerate(text):
-        
-        sub_chunks = recursive_splitter.split_text(chunk.page_content)
 
-        for sub_index, sub_chunk in enumerate(sub_chunks):
-            document_ids.append(f"{document_name}_chunk{chunk_index}_{sub_index}")
-            document_chunks.append(sub_chunk)
+        document_ids.append(f"{document_name}_chunk{chunk_index}")
+        document_chunks.append(chunk.page_content)
 
     
     collection.add(

@@ -13,7 +13,7 @@ from theme import IBMTheme
 chroma_client = chromadb.PersistentClient(path="./db")
 
 # Initialize LLaMA model with llama-cpp-python (local model)
-llama_model_path = os.getenv("RAG_MODEL_PATH") or "/data/LLMs/gguf/DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf"
+llama_model_path = os.getenv("RAG_MODEL_PATH") or "/data/LLMs/gguf/DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf"
 llama = Llama(model_path=llama_model_path, n_ctx=0)
 
 #model = SentenceTransformer('all-mpnet-base-v2')
@@ -64,20 +64,20 @@ def generate_response(query, collection_name, chat_history):
         context = "\n".join(flat_documents)
 
         input_text = input_text = f"""
-You are a helpful and knowledgeable AI assistant specialized in answering queries based on the given context and prior conversation. 
+You are a helpful and knowledgeable AI assistant specialized in answering the USER QUERY based on the given CONTEXT and prior CHAT HISTORY.
 
-### Context:
+### CONTEXT:
 Below is relevant information retrieved from a knowledge base that may help answer the user’s query:
 {context}
 
-### Chat History:
+### CHAT HISTORY:
 This is the ongoing conversation between you and the user. Use it to maintain context and provide coherent responses:
 {chat_history}
 
-### User Query:
+### USER QUERY:
 {query}
 
-### Answer:
+### Your Answer:
 """
 
         print("input text")
@@ -114,7 +114,7 @@ This is the ongoing conversation between you and the user. Use it to maintain co
             if (len(chat_history) >= 3):
                 chat_history.pop(0)
 
-            helper = chat_history + [(("User Input: " + partial_history[0][0]), ("Answer from Chatbot: " + partial_history[0][1]))]
+            helper = chat_history + [(("Question from User: " + partial_history[0][0]), ("Answer from Chatbot: " + partial_history[0][1]))]
         
         
 
@@ -208,7 +208,7 @@ def main():
         )
 
     # Launch the Gradio app
-    demo.launch(server_name="0.0.0.0", server_port = 7860, enable_queue=True)
+    demo.launch(server_name="0.0.0.0", server_port = 7680, enable_queue=True)
 
 if __name__ == "__main__":
     main()
