@@ -25,6 +25,7 @@ __all__ = [
 
 sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-mpnet-base-v2")
 
+ALL_COLLECTION_NAME = "All_Topics"
 headers_to_split_on = [
     ("#", "Header 1"),
     ("##", "Header 2"),
@@ -85,7 +86,7 @@ def document_path_get_id_prefix(doc_path: Path) -> str:
     return doc_path.stem.replace(" ", "-").replace("_", "-")
 
 
-def insert_document(document_path: Path, collection: Collection) -> None:
+def insert_document(document_path: Path, collection: Collection, hash: Optional[str] = None) -> None:
     """
     Reads a markdown file, splits it into chunks, generates embeddings,
     and inserts the chunks into a ChromaDB collection.
@@ -119,7 +120,10 @@ def insert_document(document_path: Path, collection: Collection) -> None:
                 metadatas=[{"filename": document_path.name}] * len(document_ids)
             )
     
-
+    if hash:
+        # also add hash information into db for change detection
+        _update_file_hash(collection, document_path, hash)
+        
     '''
     print("Adding chunks to collection:")
     #print(document_chunks)
@@ -157,7 +161,7 @@ def delete_document(document_path: Path, collection: Collection) -> None:
     """
     collection.delete(where={'filename': document_path.name})
     hashes = _get_hash_dict(collection)
-    hashes.pop(f"{collection.name}/{document_path.name}", None)
+    hashes.pop(_get_file_hash_id(collection, document_path), None)
     _save_hashes(collection, hashes)
 
 
@@ -271,6 +275,15 @@ def _calculate_file_hash(path: Path) -> str:
     return sha256.hexdigest()
 
 
+def _get_file_hash_id(collection: Collection, file: Path) -> str:
+    """get the dictionary key for a file id.
+
+    :param collection: The collection in which the file resides
+    :param file: Path to the file, used to extract the name. The File does not need to exist on disk.
+    :returns: str - the file id for lookup in the hashes metadata dict.
+    """
+    return f"{collection.name}/{file.name}"
+
 def _get_hash_dict(collection: Collection) -> dict[str, str]:
     """loads the hash directory from the metadata field of a collection if available
 
@@ -299,6 +312,20 @@ def _save_hashes(collection: Collection, hashes: dict[str, str]) -> None:
     collection.modify(metadata=meta_dict)
 
 
+def _update_file_hash(collection: Collection, file_path: Path, hash: str) -> None:
+    """updates the hash of a file (new or existing) in the collection metadata
+
+    :param collection: The collection which conttains the file
+    :param file_path: path to the file
+    :param hash: The hash of the file
+    """
+    # Note: The hash is given as input, since it will already be calculated for change-detection
+    #       before the need for an insert/update was determined.
+    current_hashes = _get_hash_dict(collection)
+    current_hashes[_get_file_hash_id(collection, file_path)] = hash
+    _save_hashes(collection, current_hashes)
+
+
 def load_files_from_md_directory_tree(chroma_client: ClientAPI, base_dir: Path, create_all_collection: bool = False) -> None:
     """Loads all markdown files which follow the expected file-tree structure into their 
     designated collection in the chroma db.
@@ -324,7 +351,7 @@ def load_files_from_md_directory_tree(chroma_client: ClientAPI, base_dir: Path, 
 
     file_groups = _parse_collection_files_groups_from_dir(base_dir)
     
-    all_collection_status, all_collection = ensure_collection(chroma_client, "All_Topics") if create_all_collection else (None, None)
+    all_collection_status, all_collection = ensure_collection(chroma_client, ALL_COLLECTION_NAME) if create_all_collection else (None, None)
     if all_collection_status == CollectionStatus.COLLECTION_CREATION_FAILED:
         raise RuntimeError("clould not create All Topics collection!")
     
@@ -362,7 +389,7 @@ def load_files_from_md_directory_tree(chroma_client: ClientAPI, base_dir: Path, 
                 statistics["files_not_found"] += 1
                 continue
             
-            file_local_id = f"{collection_name}/{file_name}"
+            file_local_id = _get_file_hash_id(collection, file_path)
             new_hashes[file_local_id] = _calculate_file_hash(file_path)
             
             if current_hashes.get(file_local_id) == None:
@@ -370,6 +397,7 @@ def load_files_from_md_directory_tree(chroma_client: ClientAPI, base_dir: Path, 
                 insert_document(file_path, collection)
                 statistics["files_inserted"] += 1
                 
+                # TODO: manage if only the all collection need insertion.
                 if create_all_collection:
                     insert_document(file_path, all_collection) 
                 
@@ -392,17 +420,22 @@ def load_files_from_md_directory_tree(chroma_client: ClientAPI, base_dir: Path, 
             
             if create_all_collection:
                 delete_document(Path(file_id), all_collection)
-                all_hashes.pop(file_id, None)
-         
-        # update metadata of collection (and for all):
-        _save_hashes(collection, new_hashes)
-        all_hashes.update(new_hashes)
             
         print(f"Completed updating collection '{ collection_name }'")
+     
+  
+    db_collections = chroma_client.list_collections()
+    current_collections = list(file_groups.keys())
+
+    if create_all_collection:
+        current_collections.append(ALL_COLLECTION_NAME)
     
-    _save_hashes(all_collection, all_hashes)
-   
-    # TODO: detect deleted collections and remove them. (Maybe at the top?)
+    for collection in db_collections:
+        if collection not in current_collections:
+            # collection no longer a directory on disk. Removing.
+            print(f"Detected deleted '{ collection }'. Removing from DB")
+            chroma_client.delete_collection(collection) 
+            
     # TODO: fancy output for statistics :)
     pprint(statistics)
 
@@ -424,7 +457,7 @@ def main() -> None:
     print("Setup completed.")
 
     # Example query for testing
-    collection = chroma_client.get_collection(name="POWER10", embedding_function=sentence_transformer_ef)
+    collection = chroma_client.get_collection(name=ALL_COLLECTION_NAME, embedding_function=sentence_transformer_ef)
     result = collection.query(
         query_texts=["What is IBM POWER"],
         n_results=5,

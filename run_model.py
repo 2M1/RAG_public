@@ -18,6 +18,7 @@ llama = Llama(model_path=llama_model_path, n_ctx=0)
 
 #model = SentenceTransformer('all-mpnet-base-v2')
 sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-mpnet-base-v2")
+MAX_PORT_NUMER = 65_535
 
 # Function to retrieve relevant documents from ChromaDB
 def retrieve_documents(query, collection_name, top_k=1):
@@ -158,6 +159,9 @@ def main():
     """
 
     collections = chroma_client.list_collections()
+    server_port = int(os.getenv("RAG_PORT", "7680"))
+    if not (1 <= server_port <= MAX_PORT_NUMER):
+        raise ValueError(f"PORT {server_port} outside of valid port Range 1-{MAX_PORT_NUMER}!")
 
     with gr.Blocks(theme=IBMTheme()) as demo:
         gr.Markdown("# Chatbot about IBM RedBooks running on IBM POWER10")
@@ -208,7 +212,7 @@ def main():
         )
 
     # Launch the Gradio app
-    demo.launch(server_name="0.0.0.0", server_port = 7680, enable_queue=True)
+    demo.launch(server_name="0.0.0.0", server_port = server_port, enable_queue=True)
 
 if __name__ == "__main__":
     main()
