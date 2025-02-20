@@ -26,5 +26,8 @@ llama-3.2-3b-instruct-q8_0.gguf
 DeepSeek-R1-Distill-Qwen-14B-Q8_0.gguf
 
 # PDF and md files default directory path
-collection_files/
+db_files_pdf/
 transpiled_files/
+
+# Mac
+.DS_Store
