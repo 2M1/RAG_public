@@ -9,6 +9,12 @@ import time
 import re
 from theme import IBMTheme
 
+__all__ = [
+    "retrieve_documents",
+    "generate_response",
+    "run_gardio_server",
+]
+
 # Initialize ChromaDB client and collection
 chroma_client = chromadb.PersistentClient(path="./db")
 
@@ -133,7 +139,7 @@ This is the ongoing conversation between you and the user. Use it to maintain co
     return "", chat_history + [(query, cmData)], chat_history + [(query, cmData)]
 
 # Create Gradio UI
-def main():
+def run_gradio_server():
     # Custom CSS to approximate a ChatGPT look-and-feel
     custom_css = """
     /* Basic background and container styling */
@@ -213,6 +219,10 @@ def main():
 
     # Launch the Gradio app
     demo.launch(server_name="0.0.0.0", server_port = server_port, enable_queue=True)
+
+
+def main() -> None:
+    run_gradio_server()
 
 if __name__ == "__main__":
     main()

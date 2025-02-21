@@ -21,6 +21,8 @@ __all__ = [
     "ensure_collection",
     "insert_document",
     "load_files_from_md_directory_tree",
+    "get_chroma_client",
+    "setup_chromadb_with_files",
 ]
 
 sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-mpnet-base-v2")
@@ -42,21 +44,21 @@ class CollectionStatus(Enum):
     COLLECTION_CREATION_FAILED = auto()
 
 
-def ensure_collection(client: chromadb.ClientAPI, collection_name: str) -> tuple[str, Optional[Collection]]:
+def ensure_collection(client: chromadb.ClientAPI, collection_name: str) -> tuple[CollectionStatus, Optional[Collection]]:
     try:
         # Check if the collection already exists
         collection = client.get_collection(name=collection_name, embedding_function=sentence_transformer_ef)
         print(f"Collection '{collection_name}' already exists.")
-        return "COLLECTION_EXISTS", collection
+        return CollectionStatus.COLLECTION_EXISTS, collection
     except Exception:
         # If it doesn't exist, create a new collection
         try:
             collection = client.create_collection(name=collection_name, embedding_function=sentence_transformer_ef)
             print(f"Collection '{collection_name}' created successfully.")
-            return "COLLECTION_CREATED", collection
+            return CollectionStatus.COLLECTION_CREATED, collection
         except Exception as e:
             print(f"Failed to create collection '{collection_name}': {e}")
-            return "COLLECTION_CREATION_FAILED", None
+            return CollectionStatus.COLLECTION_CREATION_FAILED, None
 
 
 def clean_text(raw_text: str) -> str:
@@ -390,26 +392,28 @@ def load_files_from_md_directory_tree(chroma_client: ClientAPI, base_dir: Path, 
                 continue
             
             file_local_id = _get_file_hash_id(collection, file_path)
+            print(file_local_id)
+            print(current_hashes) 
             new_hashes[file_local_id] = _calculate_file_hash(file_path)
-            
-            if current_hashes.get(file_local_id) == None:
+
+            if current_hashes.get(file_local_id) is None:
                 print(f"Detected new file {file_name} in collection {collection_name}. Adding.")
-                insert_document(file_path, collection)
+                insert_document(file_path, collection, hash=new_hashes[file_local_id])
                 statistics["files_inserted"] += 1
                 
                 # TODO: manage if only the all collection need insertion.
                 if create_all_collection:
-                    insert_document(file_path, all_collection) 
+                    insert_document(file_path, all_collection, hash=new_hashes[file_local_id]) 
                 
             elif current_hashes.get(file_local_id) != new_hashes[file_local_id]:
                 print(f"file { file_name } in { collection_name } was modified. Updating!")
                 delete_document(file_path, collection)
-                insert_document(file_path, collection)
+                insert_document(file_path, collection, hash=new_hashes[file_local_id])
                 statistics["files_modified"] += 1
 
                 if create_all_collection:
                     delete_document(file_path, all_collection)
-                    insert_document(file_path, all_collection)
+                    insert_document(file_path, all_collection, hash=new_hashes[file_local_id])
 
         
         deleted_files = set(current_hashes.keys()) - set(new_hashes.keys()) # files only currently in DB but not FS
@@ -439,22 +443,26 @@ def load_files_from_md_directory_tree(chroma_client: ClientAPI, base_dir: Path, 
     # TODO: fancy output for statistics :)
     pprint(statistics)
 
-
-def main() -> None:
-    db_directory = Path(os.getenv("RAG_DB_DIR") or "./db")
+def setup_chromadb_with_files(chroma_client: ClientAPI):
+    """Runs the setup by parsing the local dir as passed by environemnt variables
+   
+    :param chroma_client: The client connection to ChromaDB
+    """
     files_directory = Path(os.getenv("RAG_MD_FILE_DIR") or "transpiled_files/")
-
-    if not db_directory.exists():
-        db_directory.mkdir()
 
     if not files_directory.exists():
         print("DB files were not copied! Abort.", file=sys.stderr)
         sys.exit(1)
 
-    chroma_client = chromadb.PersistentClient(path=str(db_directory))
 
     load_files_from_md_directory_tree(chroma_client, files_directory, True)
     print("Setup completed.")
+
+
+def main() -> None:
+
+    chroma_client = get_chroma_client() 
+    setup_chromadb_with_files(chroma_client)
 
     # Example query for testing
     collection = chroma_client.get_collection(name=ALL_COLLECTION_NAME, embedding_function=sentence_transformer_ef)
@@ -464,6 +472,16 @@ def main() -> None:
         include=["documents"]
     )
     print(result)
+
+def get_chroma_client() -> ClientAPI:
+    """Creates the chroma client with persistant storage at env(RAG_DB_DIR).
+    """
+    db_directory = Path(os.getenv("RAG_DB_DIR") or "./db")
+    if not db_directory.exists():
+        db_directory.mkdir()
+
+    chroma_client = chromadb.PersistentClient(path=str(db_directory))
+    return chroma_client
 
 
 if __name__ == "__main__":
