@@ -62,8 +62,7 @@ def _parse_collection_file_struct_from_dir(base_dir: Path) -> dict[str: list[str
                 )
             )
         )
-        if files:
-            result[directory.replace(' ', '_')] = files
+        result[directory] = files
     
     return result
 

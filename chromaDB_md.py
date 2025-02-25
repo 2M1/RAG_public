@@ -358,28 +358,11 @@ def load_files_from_md_directory_tree(chroma_client: ClientAPI, base_dir: Path, 
     all_collection_status, all_collection = ensure_collection(chroma_client, ALL_COLLECTION_NAME) if create_all_collection else (None, None)
     if all_collection_status == CollectionStatus.COLLECTION_CREATION_FAILED:
         raise RuntimeError("clould not create All Topics collection!")
-    
-    all_hashes = _get_hash_dict(all_collection)
- 
-    # statistics = {
-    #     "colls_created": 0,
-    #     "colls_modified": 0,
-    #     "colls_deleted": 0,
-    #     "files_modified": 0,
-    #     "files_inserted": 0,
-    #     "files_deleted": 0,
-    #     "files_not_found": 0,
-    # }
+     
     statistics = UpdateStatistics()
-
+    all_db_files = []
 
     for collection_name, files in file_groups.items():
-        # local_statistics = {
-        #     "files_modified": 0,
-        #     "files_inserted": 0,
-        #     "files_deleted": 0,
-        #     "files_not_found": 0,
-        # } 
         local_statistics = statistics.local_statistics(collection_name)
         
         collection_status, collection = ensure_collection(chroma_client, collection_name)
@@ -390,7 +373,7 @@ def load_files_from_md_directory_tree(chroma_client: ClientAPI, base_dir: Path, 
         
         print(f"Inserting Files into new collection '{ collection_name }'.")
         
-        new_hashes = {} # change detection via sha256 hashes of the md files.
+        # change detection via sha256 hashes of the md files.
         current_hashes = _get_hash_dict(collection)
         
         for file_name in files:
@@ -400,31 +383,37 @@ def load_files_from_md_directory_tree(chroma_client: ClientAPI, base_dir: Path, 
                 print(f"File '{file_name}' was detected, but path '{file_path}' does not exists! Skipping File!", file = sys.stderr)
                 local_statistics.files_not_found.inc()
                 continue
-            
+
             file_local_id = _get_file_hash_id(collection, file_path)
-            new_hashes[file_local_id] = _calculate_file_hash(file_path)
+            new_hash = _calculate_file_hash(file_path)
+            all_db_files.append(file_local_id)
 
             if current_hashes.get(file_local_id) is None:
                 print(f"Detected new file {file_name} in collection {collection_name}. Adding.")
-                insert_document(file_path, collection, hash=new_hashes[file_local_id])
+                insert_document(file_path, collection, hash=new_hash)
                 local_statistics.files_added.inc()
                 
-                # TODO: manage if only the all collection need insertion.
                 if create_all_collection:
-                    insert_document(file_path, all_collection, hash=new_hashes[file_local_id]) 
+                    insert_document(file_path, all_collection, hash=new_hash) 
                 
-            elif current_hashes.get(file_local_id) != new_hashes[file_local_id]:
+            elif current_hashes.get(file_local_id) != new_hash:
                 print(f"file { file_name } in { collection_name } was modified. Updating!")
                 delete_document(file_path, collection)
-                insert_document(file_path, collection, hash=new_hashes[file_local_id])
+                insert_document(file_path, collection, hash=new_hash)
                 local_statistics.files_modified.inc()
 
                 if create_all_collection:
                     delete_document(file_path, all_collection)
-                    insert_document(file_path, all_collection, hash=new_hashes[file_local_id])
+                    insert_document(file_path, all_collection, hash=new_hash)
 
-        
-        deleted_files = set(current_hashes.keys()) - set(new_hashes.keys()) # files only currently in DB but not FS
+            elif all_collection_status == CollectionStatus.COLLECTION_CREATED:
+                # this branch implies currenthash == new_hash
+                # need to insert all files into the all collection, since it is new.
+                print(f"Also adding {file_name} to newly created { all_collection.name } collection.")
+
+                insert_document(file_path, all_collection, new_hash)
+ 
+        deleted_files = set(current_hashes.keys()) - set(all_db_files) # files only currently in DB but not FS
         for file_id in deleted_files:
             print(f"File {file_id} is no longer present. Deleting from DB.")
             delete_document(Path(file_id), collection)
@@ -436,11 +425,6 @@ def load_files_from_md_directory_tree(chroma_client: ClientAPI, base_dir: Path, 
         # handling statistics:
         print(f"Completed updating collection '{ collection_name }' with the following changes:")
         local_statistics.print()
-        # print(f"inserting \t{local_statistics.files_added} files")
-        # print(f"modifying \t{local_statistics.files_modified} files")
-        # print(f"deleteing \t{local_statistics.files_removed} files")
-        # if local_statistics.files_not_found:
-        #     print(f"{local_statistics.files_not_found} files were not found.")
 
   
     db_collections = chroma_client.list_collections()
