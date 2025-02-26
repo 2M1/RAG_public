@@ -249,9 +249,21 @@ def _parse_collection_files_groups_from_dir(base_dir: Path) -> dict[str: list[st
             )
         )
         if files:
-            result[directory.replace(' ', '_')] = files
+        #     result[directory.replace(' ', '_')] = files
+            result[directory] = files
     
     return result
+
+
+def _path_str_to_collection_name(path_str: str) -> str:
+    """Turns a given path (str) into a collection name
+    
+    Collection Names have a restricted set of special characters. I.e. they cannot contain spaces.
+
+    :param path_str: the str of the file/folder name to turn into a compatible collection name
+    :returns: The collection compatible name str
+    """
+    return path_str.replace(' ', '_')
 
 
 def _calculate_file_hash(path: Path) -> str:
@@ -287,6 +299,7 @@ def _get_file_hash_id(collection: Collection, file: Path) -> str:
     :returns: str - the file id for lookup in the hashes metadata dict.
     """
     return f"{collection.name}/{file.name}"
+
 
 def _get_hash_dict(collection: Collection) -> dict[str, str]:
     """loads the hash directory from the metadata field of a collection if available
@@ -362,7 +375,8 @@ def load_files_from_md_directory_tree(chroma_client: ClientAPI, base_dir: Path, 
     statistics = UpdateStatistics()
     all_db_files = []
 
-    for collection_name, files in file_groups.items():
+    for folder, files in file_groups.items():
+        collection_name = _path_str_to_collection_name(folder)
         local_statistics = statistics.local_statistics(collection_name)
         
         collection_status, collection = ensure_collection(chroma_client, collection_name)
@@ -377,7 +391,7 @@ def load_files_from_md_directory_tree(chroma_client: ClientAPI, base_dir: Path, 
         current_hashes = _get_hash_dict(collection)
         
         for file_name in files:
-            file_path: Path = base_dir / collection_name / file_name
+            file_path: Path = base_dir / folder / file_name
 
             if not file_path.exists():
                 print(f"File '{file_name}' was detected, but path '{file_path}' does not exists! Skipping File!", file = sys.stderr)
@@ -428,7 +442,7 @@ def load_files_from_md_directory_tree(chroma_client: ClientAPI, base_dir: Path, 
 
   
     db_collections = chroma_client.list_collections()
-    current_collections = list(file_groups.keys())
+    current_collections = list(map(lambda folder: _path_str_to_collection_name(folder), file_groups.keys()))
 
     if create_all_collection:
         current_collections.append(ALL_COLLECTION_NAME)
@@ -436,11 +450,12 @@ def load_files_from_md_directory_tree(chroma_client: ClientAPI, base_dir: Path, 
     for collection in db_collections:
         if collection not in current_collections:
             # collection no longer a directory on disk. Removing.
-            print(f"Detected deleted '{ collection }'. Removing from DB")
+            print(f"Detected deleted '{ collection }' colletion. Removing from DB")
             chroma_client.delete_collection(collection) 
     
     print("All Files and Collections processed! In total the following actions were performed:") 
     statistics.print()
+
 
 def setup_chromadb_with_files(chroma_client: ClientAPI):
     """Runs the setup by parsing the local dir as passed by environemnt variables

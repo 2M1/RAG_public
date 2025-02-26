@@ -56,6 +56,7 @@ def generate_response(query, collection_name, chat_history):
     # else:
     #     collection_name = "POWER10"
     # TODO: Add display names for collections?
+    #       => Postponed. Currently the names are taken from the folders.
 
 
     # Use context if needed
