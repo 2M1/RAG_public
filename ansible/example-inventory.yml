@@ -1,6 +1,6 @@
 techzone:
   hosts:
-    techzone:
+    localhost:
   vars:
     ansible_user: username # ssh-login user
     auto_start: true # whether the rag-demo should immediately start serving
