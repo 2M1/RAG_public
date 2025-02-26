@@ -29,17 +29,7 @@ Install the other libraries with pip for x86 and with conda (rocketce or default
 
 ## Usage
 
-### 1. Convert the pdf files into a markdown file
-
-1. Run the `converter_docling.py` script:
-   ```bash
-   python converter_docling.py
-   ```
-
-### 2. Generate the Vector Database
-
-To generate the vector database from your markdown files:
-
+To generate the vector database from your PDF and/or markdown files:
 
 1. Your pdf/markdown files should be located in a folder with a subfolder for each collection (will result in a drop-down entry to select from for context usage when using gradio.):
 ```txt
