@@ -80,6 +80,7 @@ To generate the vector database from your PDF and/or markdown files:
    ```sh
    micromamba run -n rag-demo python run_model.py
    ```
+   To continuously run this server on a LPAR we recommend the installation via a systemd service. A Template for such a service can be found under the [systemd folder](systemd/rag-demo.service).
 
 ### Configure the LLM
 

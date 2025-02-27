@@ -13,12 +13,15 @@ Requirements:
 - all required python packages (see ansible/rag-environment and ansible/requirements.txt)
   must be installed.
 """
+
 import os
 from pathlib import Path
 from typing import NoReturn
 
+
 def step_fill_chroma_db() -> bool:
     from chromaDB_md import get_chroma_client, setup_chromadb_with_files
+
     print("Inserting md files into ChromaDB")
     client = get_chroma_client()
     setup_chromadb_with_files(client)
@@ -27,7 +30,7 @@ def step_fill_chroma_db() -> bool:
 
 def step_convert_pdfs() -> bool:
     from converter_docling import convert_dir_files
-    
+
     print("converting pdf files to md")
     convert_dir_files(
         Path(os.getenv("RAG_PDF_FILE_DIR")),
@@ -38,6 +41,7 @@ def step_convert_pdfs() -> bool:
 
 def step_run_server() -> NoReturn:
     from run_model import run_gradio_server
+
     print("starting gradio server")
     run_gradio_server()
 
@@ -46,6 +50,7 @@ def run_pipeline() -> NoReturn:
     step_convert_pdfs()
     step_fill_chroma_db()
     step_run_server()
-   
+
+
 if __name__ == "__main__":
-    run_pipeline() 
+    run_pipeline()

@@ -19,34 +19,42 @@ __all__ = [
 chroma_client = chromadb.PersistentClient(path="./db")
 
 # Initialize LLaMA model with llama-cpp-python (local model)
-llama_model_path = os.getenv("RAG_MODEL_PATH") or "/data/LLMs/gguf/DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf"
+llama_model_path = (
+    os.getenv("RAG_MODEL_PATH")
+    or "/data/LLMs/gguf/DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf"
+)
 llama = Llama(model_path=llama_model_path, n_ctx=0)
 
-#model = SentenceTransformer('all-mpnet-base-v2')
-sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-mpnet-base-v2")
+# model = SentenceTransformer('all-mpnet-base-v2')
+sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
+    model_name="all-mpnet-base-v2"
+)
 MAX_PORT_NUMER = 65_535
+
 
 # Function to retrieve relevant documents from ChromaDB
 def retrieve_documents(query, collection_name, top_k=1):
- 
-    collection = chroma_client.get_collection(name=collection_name, embedding_function=sentence_transformer_ef)
-    
-    #query_embedding = model.encode([query])[0]
+    collection = chroma_client.get_collection(
+        name=collection_name, embedding_function=sentence_transformer_ef
+    )
+
+    # query_embedding = model.encode([query])[0]
 
     # Perform similarity search with ChromaDB
     results = collection.query(query_texts=[query], n_results=top_k)
-    
+
     # Extract the documents
     retrieved_documents = results["documents"]
     return retrieved_documents
 
+
 # Function to generate response with LLaMA model using llama-cpp-python
 def generate_response(query, collection_name, chat_history):
     """
-    Generates a response from the LLaMA model, using streaming, 
+    Generates a response from the LLaMA model, using streaming,
     and updates the chat_history with partial bot outputs.
     """
-    
+
     print("collection")
     print(collection_name)
     # if (collection_name == "Openshift/AI on POWER"):
@@ -57,7 +65,6 @@ def generate_response(query, collection_name, chat_history):
     #     collection_name = "POWER10"
     # TODO: Add display names for collections?
     #       => Postponed. Currently the names are taken from the folders.
-
 
     # Use context if needed
     use_context = True
@@ -90,54 +97,63 @@ This is the ongoing conversation between you and the user. Use it to maintain co
 
         print("input text")
         print(input_text)
-        
+
     else:
         input_text = f"Query: {query}\nAnswer: "
 
     # Prepare a string to accumulate the model’s streamed tokens
     cmData = ""
-    
+
     stopThinking = False
     for output in llama(input_text, max_tokens=4096, stream=True):
-        token_text = output['choices'][0]['text']
-        #print(token_text)
-        #if (token_text == "</think>"):
-            #stopThinking = True
-            #print("stop thinking true")
+        token_text = output["choices"][0]["text"]
+        # print(token_text)
+        # if (token_text == "</think>"):
+        # stopThinking = True
+        # print("stop thinking true")
 
-        #if (stopThinking == True and token_text != "</think>"):
+        # if (stopThinking == True and token_text != "</think>"):
         cmData += token_text
-            
+
         # Each time we get new tokens, we yield an updated chat history
         partial_history = [(query, cmData)]
-        
-        #partial_history[0] = "User Question:" + partial_history[0] 
-        
-        #print("partial_history")
-        #print(partial_history)
-        
-        #print("partial history here")
-        #print(partial_history[0][0])
-        
-        if (len(chat_history) >= 3):
+
+        # partial_history[0] = "User Question:" + partial_history[0]
+
+        # print("partial_history")
+        # print(partial_history)
+
+        # print("partial history here")
+        # print(partial_history[0][0])
+
+        if len(chat_history) >= 3:
             chat_history.pop(0)
 
-        helper = chat_history + [(("User Input: " + partial_history[0][0]), ("Answer from Chatbot: " + partial_history[0][1]))]
-        
-        
+        helper = chat_history + [
+            (
+                ("User Input: " + partial_history[0][0]),
+                ("Answer from Chatbot: " + partial_history[0][1]),
+            )
+        ]
 
-        #print("helper")
-        #print(helper)
-        
-            #print(partial_history)
+        # print("helper")
+        # print(helper)
+
+        # print(partial_history)
 
         # Yield both the updated input and chat history
-        yield "", partial_history, helper, gr.Textbox.update(value=context, visible=True)  # Return chat history twice (for chatbot & state)
-    
+        yield (
+            "",
+            partial_history,
+            helper,
+            gr.Textbox.update(value=context, visible=True),
+        )  # Return chat history twice (for chatbot & state)
+
     print("final answer")
     print(chat_history + [(query, cmData)])
     # **Ensure final chat history is properly returned**
     return "", chat_history + [(query, cmData)], chat_history + [(query, cmData)]
+
 
 # Create Gradio UI
 def run_gradio_server():
@@ -168,7 +184,9 @@ def run_gradio_server():
     collections = chroma_client.list_collections()
     server_port = int(os.getenv("RAG_PORT", "7680"))
     if not (1 <= server_port <= MAX_PORT_NUMER):
-        raise ValueError(f"PORT {server_port} outside of valid port Range 1-{MAX_PORT_NUMER}!")
+        raise ValueError(
+            f"PORT {server_port} outside of valid port Range 1-{MAX_PORT_NUMER}!"
+        )
 
     with gr.Blocks(theme=IBMTheme()) as demo:
         gr.Markdown("# Chatbot about IBM RedBooks running on IBM POWER10")
@@ -178,34 +196,29 @@ def run_gradio_server():
 
         with gr.Row():
             # Our Chatbot display
-            chatbot = gr.Chatbot(
-                label="Chatbot",
-                elem_id="chatbot",
-                height=400
-            ).style(container=True)
+            chatbot = gr.Chatbot(label="Chatbot", elem_id="chatbot", height=400).style(
+                container=True
+            )
         with gr.Row():
             retreival_vector_db = gr.Textbox(
-                lines = 8,
+                lines=8,
                 interactive=False,
                 visible=False,
-                label="Source from Documents in Vector DB"
+                label="Source from Documents in Vector DB",
             )
 
         with gr.Row():
             # User input
             query_input = gr.Textbox(
-                show_label=False, 
+                show_label=False,
                 placeholder="Enter your query here...",
-                container=False
+                container=False,
             )
 
-            file_selector = gr.Dropdown(
-                label="Which POWER Topic?",
-                choices=collections
-            )
+            file_selector = gr.Dropdown(label="Which POWER Topic?", choices=collections)
 
             # Submit button
-            
+
         with gr.Row():
             submit_button = gr.Button("Submit")
 
@@ -215,15 +228,21 @@ def run_gradio_server():
         submit_button.click(
             fn=generate_response,
             inputs=[query_input, file_selector, chat_history],
-            outputs=[query_input, chatbot, chat_history, retreival_vector_db]  # chatbot auto-displays chat_history
+            outputs=[
+                query_input,
+                chatbot,
+                chat_history,
+                retreival_vector_db,
+            ],  # chatbot auto-displays chat_history
         )
 
     # Launch the Gradio app
-    demo.launch(server_name="0.0.0.0", server_port = server_port, enable_queue=True)
+    demo.launch(server_name="0.0.0.0", server_port=server_port, enable_queue=True)
 
 
 def main() -> None:
     run_gradio_server()
+
 
 if __name__ == "__main__":
     main()
