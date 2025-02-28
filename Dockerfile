@@ -12,8 +12,6 @@ COPY run_model.py .
 COPY theme.py .
 COPY db db
 
-RUN python chromaDB_md.py
-
 RUN wget https://huggingface.co/bartowski/granite-3.1-8b-instruct-GGUF/resolve/main/granite-3.1-8b-instruct-Q4_K_M.gguf
 
 CMD python run_model.py
