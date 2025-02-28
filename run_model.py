@@ -17,7 +17,7 @@ llama_model_path = os.getenv("RAG_MODEL_PATH") or "granite-3.1-8b-instruct-Q4_K_
 llama = Llama(model_path=llama_model_path, n_ctx=0)
 
 #model = SentenceTransformer('all-mpnet-base-v2')
-sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-mpnet-base-v2")
+sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
 
 # Function to retrieve relevant documents from ChromaDB
 def retrieve_documents(query, collection_name, top_k=1):
