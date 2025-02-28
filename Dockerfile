@@ -10,6 +10,7 @@ COPY db_files_md db_files_md
 COPY chromaDB_md.py .
 COPY run_model.py .
 COPY theme.py .
+COPY db db
 
 RUN python chromaDB_md.py
 

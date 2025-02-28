@@ -1,6 +1,5 @@
 # Ignore the folder db_files_txt
 /.cache/
-/db/
 /db_files_pdf/
 /db_files_ocp/
 /__pycache__/
